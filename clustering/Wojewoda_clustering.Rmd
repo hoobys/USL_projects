@@ -1,0 +1,236 @@
+---
+title: "Landscape image clustering quality and size analysis"
+author: "Hubert Wojewoda"
+date: "2023-02-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This notebook serves as a hands-on demonstration of unsupervised learning techniques for landscape image clustering. The objective is to analyze the quality of clustering with respect to the size of the image, and to see how the clustering algorithms perform when applied to a landscape image.
+
+In this demonstration, we will use the packages jpeg, rasterImage, imager, and cluster in R to perform the following tasks:
+
+1.  Load and plot a landscape image in R.
+2.  Extract the RGB (red, green, blue) values of each pixel in the image and convert it into a data frame.
+3.  Apply the CLARA (Clustering Large Applications) algorithm to the data frame and analyze the clustering results using the silhouette method.
+4.  Visualize the results of clustering and save the output image as a JPEG file.
+5.  Analyze size and quality of compression using image color clustering.
+
+Let's start by loading the necessary libraries and uploading the image.
+
+```{r, message = FALSE}
+# libraries
+library(jpeg)
+library(rasterImage)
+library(imager)
+library(cluster)
+```
+
+```{r}
+# read the image
+landscape<-readJPEG("landscape.jpg")
+
+# plot the raster image
+plot(0:1,0:1,type="n",ann=FALSE,axes=FALSE)
+rasterImage(landscape,0,0,1,1)
+
+```
+
+As we can see the image is a landscape consisting of many details. It has a desert-like shore which is divided from the beach by a strip of green forestry and small bodies of water. We also can notice a large ocean and clouded sky. This image was chosen purposefully to see how many details we would loose due to compressing and how many colors can we drop without too much loss in quality.
+
+## Preprocessing and extracting RGB
+
+Before we can do any analysis we have to prepare the image by extracting the RBG values and creating a data frame. The prepared image is 1024x1024 so just large enough to have detail but small enough not to drastically slow down computation.
+
+```{r}
+# dimensions of the object
+dm1<-dim(landscape)
+
+# develop a data frame
+# get the coordinates of pixels - RGB info in three columns
+image_df<-data.frame(x=rep(1:dm1[2], each=dm1[1]),  y=rep(dm1[1]:1, dm1[2]), r.value=as.vector(landscape[,,1]),  g.value=as.vector(landscape[,,2]), b.value=as.vector(landscape[,,3]))
+
+# plot the image in RGB
+plot(y~x, data=image_df, main="Desert beach landscape RGB", col=rgb(image_df[c("r.value", "g.value", "b.value")]), asp=1, pch=".")
+
+```
+
+## Apply the CLARA
+
+The code applies the CLARA (Clustering Large Applications) algorithm to the data frame that contains information about the coordinates of pixels and their RGB values. CLARA is a modification of the k-medoids algorithm, which is used for clustering large datasets. It is a robust and efficient algorithm that is capable of handling large datasets and finding optimal clusters.
+
+The silhouette method is used to analyze the results of the clustering. The silhouette score provides an evaluation of the quality of the clustering. It measures how similar an object is to its own cluster compared to other clusters. A higher silhouette score indicates better clustering quality.
+
+The code uses a loop to consider different numbers of clusters, from 1 to 30. For each iteration, the CLARA algorithm is applied to the data frame with the corresponding number of clusters. The average silhouette score for each iteration is saved in a vector, n1.
+
+Finally, the results of the analysis are plotted using the plot function. The average silhouette score is plotted against the number of clusters. The plot helps to visualize the optimal number of clusters that provides the best clustering quality, as determined by the silhouette method. The optimal number of clusters is the number of clusters with the highest average silhouette score.
+
+```{r}
+# empty vector to save results
+n1<-c() 
+
+# number of clusters to consider
+for (i in 1:30) {
+  cl<-clara(image_df[, c("r.value", "g.value", "b.value")], i)
+  # saving silhouette to vector
+  n1[i]<-cl$silinfo$avg.width
+}
+
+plot(n1, type='l', main="Optimal number of clusters", xlab="Number of clusters", ylab="Average silhouette", col="blue")
+points(n1, pch=21, bg="navyblue")
+abline(h=(1:30)*5/100, lty=3, col="grey50")
+```
+
+From the plot, it is clear that the highest silhouette score is above 0.7 when using 2 clusters. Hence, we will begin our analysis with 2 clusters and evaluate the results further.
+
+Now we define a custom function that exports the compressed image. The function takes four parameters: image_matrix, cluster_object, k, and file_name. It first determines the cluster for each pixel in the image by combining the image_matrix with the clustering results from cluster_object. Then, a function is defined to swap the number of clusters for its center. This function is then applied to the combined data frame. Next, the dimension of the image is transformed from a single column to a matrix with three separate columns for red, green, and blue values. This matrix is then transformed into a format that can be used by the jpeg package. Finally, the image is saved as a JPEG file with the file name specified by the user in the "file_name" parameter.
+
+```{r}
+# Function to export the clustered image to jpeg
+clustering_to_jpeg <- function(image_matrix, cluster_object, k, file_name) {
+  
+  # Determine the cluster for each pixel
+  cluster_df <- cbind(image_matrix, cluster_object$clustering)
+  
+  # Function to swap number of cluster for its center
+  medoids <- function(x){
+    for (i in 1:k){
+      if(x==i) return(cluster_object$medoids[i,])
+    }
+  }
+  
+  # Apply above function
+  a <- t(apply(as.data.frame(cluster_df$`cluster_object$clustering`), 1, medoids))
+  
+  # Change dimension from single columns to matrix
+  img_list <- list(matrix(a[,1], nrow=dim(landscape)[1], ncol=dim(landscape)[2]),
+               matrix(a[,2], nrow=dim(landscape)[1], ncol=dim(landscape)[2]),
+               matrix(a[,3], nrow=dim(landscape)[1], ncol=dim(landscape)[2]))
+  
+  # Transformation of data to jpeg package format
+  img_list <- sapply(img_list, function(x) {compressed.img <- x}, simplify = 'array')
+  
+  # Save the image to a JPEG file
+  writeJPEG(img_list, file_name)
+}
+```
+
+## Visualize the results
+
+We start by setting the number of clusters to 2, which was determined to be optimal based on the previous plot analysis. First let us plot the silhouette scores as a bar graph, where the height of each bar represents the similarity of the sample to its own cluster compared to other clusters. The closer the score is to 1, the better the sample fits into its own cluster.
+
+```{r}
+# Silhouette information, for 2 clusters
+clara<-clara(image_df[,3:5], 2) 
+plot(silhouette(clara))
+```
+
+We see the results for two clusters are very good, now let's see how the image looks like with only two colors.
+
+```{r}
+# assign medoids (“average” RGB values) to each cluster id and convert RGB into color
+colours<-rgb(clara$medoids[clara$clustering, ])
+
+# plot pixels in the new colors
+plot(y~x, data=image_df, col=colours, pch=".", cex=2, asp=1, main="Landscape with 2 colors")
+```
+
+Now let's use this function to export the results of the two cluster analysis.
+
+```{r}
+clustering_to_jpeg(image_df, clara, 2, 'two_cluster.jpg')
+```
+
+We see that the image quality is not great, as expected, but we have a very good result when it comes to size which is 96,2 KB compared to the original 331 KB. This means we have achieved a \~70% reduction in size.
+
+Looking at the silhouette plot we can notice two interesting spikes despite the initial one. at 9, 17 and 24 clusters. We should check them how these values perform in terms of quality and size.
+
+```{r}
+# Silhouette information, for 9 clusters
+clara<-clara(image_df[,3:5], 9) 
+
+# assign medoids (“average” RGB values) to each cluster id and convert RGB into color
+colours<-rgb(clara$medoids[clara$clustering, ])
+
+# plot pixels in the new colors
+plot(y~x, data=image_df, col=colours, pch=".", cex=2, asp=1, main="Landscape with 9 colors")
+
+clustering_to_jpeg(image_df, clara, 9, 'nine_cluster.jpg')
+```
+
+This image is definitely better in terms of quality. We can see way more details and the only real problems occurs in the sky and ocean where there's not enough colors to accurately capture the scene. Looking at the size we get 133 KB which is still a very good \~60% decrease.
+
+Now let's check the 17 cluster results.
+
+```{r}
+# Silhouette information, for 17 clusters
+clara<-clara(image_df[,3:5], 17) 
+
+# assign medoids (“average” RGB values) to each cluster id and convert RGB into color
+colours<-rgb(clara$medoids[clara$clustering, ])
+
+# plot pixels in the new colors
+plot(y~x, data=image_df, col=colours, pch=".", cex=2, asp=1, main="Landscape with 17 colors")
+
+clustering_to_jpeg(image_df, clara, 17, 'seventeen_cluster.jpg')
+```
+
+We can definitely notice an improvement in quality though not a huge one. The biggest difference is in the weakest point of the previous image - sky and ocean, which gets more definition here. The biggest surprise is the file size which is 132 KB, which is lower than the 9 cluster image!
+
+This results is very promising so finally let's check the 24 cluster option.
+
+```{r}
+# Silhouette information, for 24 clusters
+clara<-clara(image_df[,3:5], 24) 
+
+# assign medoids (“average” RGB values) to each cluster id and convert RGB into color
+colours<-rgb(clara$medoids[clara$clustering, ])
+
+# plot pixels in the new colors
+plot(y~x, data=image_df, col=colours, pch=".", cex=2, asp=1, main="Landscape with 24 colors")
+
+clustering_to_jpeg(image_df, clara, 24, 'twentyfour_cluster.jpg')
+```
+
+A small improvement in quality can be noticed, mostly in shading and reflections. But again the size of the file is 133 KB, same as 9 clusters! There is something very interesting happening here, so for the last analysis let's check 50 and 500 clusters just to see what will happen.
+
+```{r}
+# Silhouette information, for 50 clusters
+clara<-clara(image_df[,3:5], 50) 
+
+# assign medoids ("average" RGB values) to each cluster id and convert RGB into color
+colours<-rgb(clara$medoids[clara$clustering, ])
+
+# plot pixels in the new colors
+plot(y~x, data=image_df, col=colours, pch=".", cex=2, asp=1, main="Landscape with 50 colors")
+
+clustering_to_jpeg(image_df, clara, 50, 'fifty_cluster.jpg')
+```
+
+Way better quality with 127 KB size! Let's see 500 clusters just for curiosity's sake.
+
+```{r}
+# Silhouette information, for 500 clusters
+clara<-clara(image_df[,3:5], 500) 
+
+# assign medoids ("average" RGB values) to each cluster id and convert RGB into color
+colours<-rgb(clara$medoids[clara$clustering, ])
+
+# plot pixels in the new colors
+plot(y~x, data=image_df, col=colours, pch=".", cex=2, asp=1, main="Landscape with 500 colors")
+
+clustering_to_jpeg(image_df, clara, 500, 'fivehundred_cluster.jpg')
+```
+
+Finally this image is practically indistinguishable from the original by the human eye, while having 122 KB. Which is an astonishing result.
+
+## Conclusion
+
+This notebook analyzed the quality of landscape image clustering with respect to the size of the image using the CLARA (Clustering Large Applications) algorithm in R. The image was preprocessed to extract the RGB values of each pixel and converted into a data frame, and the silhouette method was used to evaluate the quality of the clustering. The results of the analysis showed that the optimal number of clusters was 2, providing the highest average silhouette score.
+
+More importantly, the study revealed the trade-off between image size and quality when it comes to image compression through color clustering. The image was chosen specifically to have enough detail and color while being small enough to not slow down computation. The results showed that as the number of clusters decreased, the image quality was also impacted, and thus, there was a trade-off between the size and quality of the image. Though at a point of around above 9 clusters size didn't appear to change or even decreased even though the quality still increased. This is a very promising result and proves that these kind of algorithms can be used as a successful compression method for images possibly decreasing their size to about a third of the original.

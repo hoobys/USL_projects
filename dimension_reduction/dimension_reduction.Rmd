@@ -1,0 +1,244 @@
+---
+title: "Dimension reduction - young people survey"
+author: "Hubert Wojewoda"
+date: "2023-02-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Agenda
+
+1.  Introduction: Brief overview of the study's purpose and objectives.
+
+2.  Data preparation: Overview of the survey data, including its size and variable types.
+
+3.  Exploratory data analysis: Use of visualizations and understand the structure of the data.
+
+4.  PCA implementation: Implementation of PCA and interpretation of the results, including the proportion of variance explained by each principal component.
+
+5.  Conclusions: Summary of the study's findings.
+
+## Introduction
+
+In today's rapidly changing and complex world, understanding human interests and preferences is crucial for a wide range of applications. In this analysis, I aim to examine whether a large number of human interests can be described by a smaller number of latent concepts. The dataset used for this study was collected from young people between the ages of 15 and 30, in 2013, by students of the Statistics class at FSEV UK. The data file consists of responses from 1010 participants and contains 150 variables, covering various aspects of human interests, including music preferences, movie preferences, hobbies, health habits, personality traits, spending habits, and demographics. The goal is to use principal component analysis (PCA) to reduce the dimensionality of the data and identify a smaller number of underlying latent concepts that describe the human interests of the participants. This could provide important insights into human interests and contribute to our understanding of how to better capture and describe the complexity of human preferences.
+
+Dataset link: <https://www.kaggle.com/datasets/miroslavsabo/young-people-survey?select=responses.csv>
+
+```{r}
+df <- read.csv('data/responses.csv')
+head(df, 10)
+```
+
+```{r}
+summary(df)
+```
+
+```{r}
+dim(df)
+```
+
+## Data preparation
+
+In order to perform PCA we have to ensure that the data is in a suitable format for analysis. In this step, we conclude several tasks such as dropping missing values, converting necessary variables to factors, and transforming them into numerical values. After converting the variables, it's also a good idea to check their histograms to make sure that the values are distributed in a manner that makes sense.
+
+```{r}
+# Check which columns are not numeric
+non_numeric_columns <- names(df)[!sapply(df, is.numeric)]
+
+# Print the non-numeric columns
+print(non_numeric_columns)
+```
+
+As we can see there are 11 variables that aren't numeric and require our attention so we will process them accordingly, but first we drop the unnecessary NA's.
+
+```{r}
+df <- na.omit(df)
+```
+
+Here we process the non-numeric variables into factors, then into numbers for further analysis.
+
+```{r}
+df$Smoking <- factor(df$Smoking, levels=c("never smoked", "tried smoking", "former smoker", "current smoker"))
+df$Smoking <- as.numeric(df$Smoking)
+
+df$Alcohol <- factor(df$Alcohol, levels=c("never", "social drinker", "drink a lot"))
+df$Alcohol <- as.numeric(df$Alcohol)
+
+df$Punctuality <- factor(df$Punctuality, levels=c("i am often early", "i am always on time", "i am often running late"))
+df$Punctuality <- as.numeric(df$Punctuality)
+
+df$Lying <- factor(df$Lying, levels=c("never", "only to avoid hurting someone", "sometimes", "everytime it suits me"))
+df$Lying <- as.numeric(df$Lying)
+
+df$Internet.usage <- factor(df$Internet.usage, levels=c("no time at all", "less than an hour a day", "few hours a day", "most of the day"))
+df$Internet.usage <- as.numeric(df$Internet.usage)
+
+df$Education <- factor(df$Education, levels=c("currently a primary school pupil", "primary school", "secondary school", "college/bachelor degree", "masters degree", "doctorate degree"))
+df$Education <- as.numeric(df$Education)
+
+df$Gender <- factor(df$Gender)
+df$Gender <- as.numeric(df$Gender)
+
+df$Left...right.handed <- factor(df$Left...right.handed)
+df$Left...right.handed <- as.numeric(df$Left...right.handed)
+
+df$Only.child <- factor(df$Only.child)
+df$Only.child <- as.numeric(df$Only.child)
+
+df$Village...town <- factor(df$Village...town)
+df$Village...town <- as.numeric(df$Village...town)
+
+df$House...block.of.flats <- factor(df$House...block.of.flats)
+df$House...block.of.flats <- as.numeric(df$House...block.of.flats)
+
+# Check which columns are not numeric
+non_numeric_columns <- names(df)[!sapply(df, is.numeric)]
+
+# Print the non-numeric columns
+print(non_numeric_columns)
+```
+
+Let's make sure that all NA's are dropped.
+
+```{r}
+df <- na.omit(df)
+```
+
+## Exploratory data analysis
+
+Now we can examine histograms of the variables. Of course most of them will be in 1-5 range as they are survey questions with appropriate meaning.
+
+```{r}
+
+# Get the number of variables in df
+ncols <- ncol(df)
+
+# Create a loop to plot histograms for each column
+for (i in 1:ncols) {
+    # Plot the histogram for the i-th column
+    hist(df[,i], main=colnames(df)[i], xlab="Value", ylab="Frequency")
+}
+```
+
+## PCA implementation
+
+After examining the histograms we can proceed to PCA implementation. Principal Component Analysis (PCA) is a dimension reduction technique used to simplify large datasets into a smaller set of uncorrelated variables, known as principal components. The objective of PCA is to identify patterns and relationships in the data that explain the maximum amount of variation. The transformed variables (PCs) are then used to represent the original data in a reduced number of dimensions, while still retaining most of the information.
+
+First let us check the correlation inside our data.
+
+```{r}
+library(corrplot) # to plot nice correlations
+
+# Calculate the pairwise correlations
+correlations <- cor(df, method = 'spearman')
+
+# Plot the correlations using corrplot
+corrplot(correlations)
+```
+
+Unfortunately due to our data having a quite large amount of variables (150) the correlation plot is very hard to read. In this case, we shall use another library named 'lares' to visualize the top 10 correlated variables in a clear bar chart.
+
+```{r}
+library(lares)
+
+corr_cross(df, # name of dataset
+  max_pvalue = 0.05, # display only significant correlations (at 5% level)
+  top = 10 # display top 10 couples of variables (by correlation coefficient)
+)
+```
+
+As we can see from the chart above, there is quite a lot of correlation inside this dataset. This is a very good sign for our PCA analysis.
+
+First we need to normalize the data in order to bring all the variables to the same scale, as PCA is a variance-based technique and variables with larger scales can dominate the results. Normalizing the data helps to ensure that the results of PCA are not influenced by differences in the scale of the variables.
+
+```{r}
+library(caret)
+
+preproc1 <- preProcess(df, method=c("center", "scale"))
+df.s <- predict(preproc1, df)
+ 
+summary(df.s)
+```
+
+Now let us examine the eigenvalues on the basis of covariance matrix. The eigenvalues represent the amount of variation explained by each principal component. A larger eigenvalue indicates that the corresponding principal component explains a greater proportion of the variation in the data.
+
+```{r}
+# eigenvalues on the basis of covariance
+df.cov<-cov(df.s)
+df.eigen<-eigen(df.cov)
+df.eigen$values
+head(df.eigen$vectors)
+```
+
+Next we perform PCA on our data in order to reduce its dimensionality and extract important features. By using the prcomp function from the stats library, we will be able to generate a PCA model that will provide us with important information about the components and their respective loadings.
+
+```{r}
+data<-df.s # for easier references
+data.pca1<-prcomp(data, center=FALSE, scale.=FALSE) # stats::
+data.pca1$rotation #only “rotation” part, the matrix of variable loadings
+
+```
+
+```{r}
+df.cov<-cov(df)
+df.eigen<-eigen(df.cov)
+df.eigen$values
+```
+
+From these outputs, we can notice the first eigenvalue is much larger than the others, indicating that the first eigenvector has a dominant direction compared to the others. The subsequent eigenvalues are relatively small compared to the first one, and they represent the contribution of the corresponding eigenvectors to the overall structure of the matrix. The decrease of the values as they move towards the end of the list suggests that they represent relatively less important information.
+
+Now let us examine the screeplot in order to find the 'elbow' and examine what percent of variance the PCs explain.
+
+```{r}
+library(factoextra)
+
+# visusalisation of quality
+fviz_eig(data.pca1, choice='eigenvalue') # eigenvalues on y-axis
+fviz_eig(data.pca1) # percentage of explained variance on y-axis
+
+
+```
+
+It is hard to notice any elbow point in this graph, but the most promising one would probably be around 3 or 4 dimensions. In order to be sure, we need to represent this data in a clearer way, such as a sorted table.
+
+```{r}
+eig.val<-get_eigenvalue(data.pca1)
+eig.val
+```
+
+Here, it is very clear that in this dataset, the PCA dimension reduction needs more dimensions in order to represent a large amount of variance. With 3 dimensions we can only 'catch' around 16 percent of variance which is not enough. A more reasonable amount of PCs would be around 60 to 70 where the cumulative variance explained is around 75 to 80 percent. This is a large amount of dimensions, but still less than the original 150 variables of the data.
+
+We can also examine the contributions of individual variables to the first and second PC in order to help us understand which variables are driving the most variance in the data and, therefore, which variables are most important for explaining the structure of the data.
+
+```{r}
+# contributions of individual variables to PC
+library(gridExtra)
+var<-get_pca_var(data.pca1)
+a<-fviz_contrib(data.pca1, "var", axes=1, xtickslab.rt=90) # default angle=45°
+b<-fviz_contrib(data.pca1, "var", axes=2, xtickslab.rt=90)
+grid.arrange(a,b,top='Contribution to the first two Principal Components')
+```
+
+Unfortunately, a lot of variables are a part of both dimensions so the plots are not very representative.
+
+Finally, let's visualize the results using the 'factoextra' library. Using a scatter plot of labeled observations in two dimensions, scatter plot of unlabeled observations in two dimensions, with the color of the points representing the quality of representation of the observation and a color correlation plot of the PCA.
+
+```{r}
+# labeled observations in two dimensions
+fviz_pca_ind(data.pca1, col.ind="#00AFBB", repel=TRUE)
+
+# unlabeled observations in two dimensions with coloured quality of representation
+fviz_pca_ind(data.pca1, col.ind="cos2", geom="point", gradient.cols=c("white", "#2E9FDF", "#FC4E07" ))
+
+# colour correlation plot
+fviz_pca_var(data.pca1, col.var = "steelblue")
+
+
+```
+
+## Conclusion
+
+In conclusion, this study and analysis of the dataset collected from the survey of students and their friends at FSEV UK in 2013 provided valuable insights into their preferences, habits, and traits. Although the results were not astonishing, they still gave us a deeper understanding of the respondents and offered a glimpse into their lifestyles. The data was complex and consisted of a variety of variables that were split into different groups, such as music preferences, movie preferences, hobbies, phobias, health habits, and personality traits, among others. Nevertheless, the analysis allowed us to make meaningful observations and get a sense of the respondents' characteristics. Despite its limitations, the data was a useful tool for exploring the preferences and habits of the Slovakian youth.

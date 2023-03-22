@@ -1,0 +1,196 @@
+---
+title: "Association rules - grocery dataset"
+author: "Hubert Wojewoda"
+date: "2023-02-07"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Agenda
+
+1.  Introduction: A brief overview of Association Rule Mining.
+2.  Dataset loading and overview: Loading the dataset and providing an overview of its structure and contents.
+3.  Preprocessing: Cleaning and preparing the data for analysis.
+4.  Analysis and Interpretation of Results: Calculation of support, confidence, and lift metrics, generation of rules, visualization of results.
+5.  Conclusion: Summary of the findings from the analysis.
+
+## Introduction
+
+Association rules are a powerful data mining technique that helps to uncover relationships between variables in datasets.
+In the context of a grocery dataset, it is possible to identify frequently purchased items and any associations between them.
+This information can then be used to inform sales and marketing strategies, such as creating product bundles, cross-selling, and up-selling.
+We will start by loading the data, then preprocessing it, generating rules, visualizing the results, and finally, analyzing and interpreting the findings.
+The ultimate goal of this analysis could be to provide recommendations that can be used to develop marketing strategies.
+Dataset link: <https://www.kaggle.com/datasets/heeraldedhia/groceries-dataset>
+
+## Dataset loading and overview
+
+First let's load the data and packages then take a look at what we're working with.
+
+```{r}
+# reading the packages
+library(arules)
+library(arulesViz)
+library(arulesCBA)
+
+trans = read.transactions('data/Groceries_dataset.csv', format = "single", sep = ",", cols = c("Member_number", "itemDescription"), header = TRUE)
+
+inspect(trans[1:10])
+```
+
+We can notice that the transactions are quite big and diverse which could mean the analysis will be full of interesting insights.
+Let's check the frequency of items in transactions relative to each other.
+
+```{r}
+itemFrequencyPlot(trans, topN=15, type="relative", main="Grocery item frequency") 
+```
+
+We see that milk is in over 40% of the transactions!
+Vegetables, bakings and soda or yogurts are also all very high in frequency.
+It is quite expected as these items are food and drink items necessary for survival and bought very often.
+We should also investigate the summary of this data.
+
+```{r}
+summary(trans)
+```
+
+Here we can see the absolute number of transaction of the top items and some basic descriptive statistics about this dataset.
+Let's move on to
+
+## Preprocessing
+
+This data doesn't really need any preprocessing as the read.transaction function practically did most of the hard work for us, so let's move on to anaysis.
+
+## Analysis of Rule Association mining
+
+```{r}
+rules<-apriori(trans) 
+```
+
+The results of the Apriori algorithm indicate that it did not generate any rules.
+This means that the algorithm did not find any significant associations or patterns between items in the transactions data.
+The reason probably is that the minimum support count was set too high.
+It determines the minimum number of transactions that an itemset must appear in to be considered significant.
+If it was set too high, it could have filtered out all possible rules, leading to the result of no rules generated.
+Let's try a lower support and confidence threshold.
+
+```{r}
+rules <- apriori(trans, parameter=list(supp=0.03, conf=0.60, minlen=2)) 
+```
+
+These results show that the algorithm was able to generate 8 rules from the data!
+This means that we have found some significant associations between items in the data!
+Compared to the previous results, by setting a lower minimum support and confidence threshold, the algorithm was able to find more rules and uncover some patterns in the data.
+Now that we have some rules to work with we can plot them.
+
+```{r}
+set.seed(42) 
+plot(rules, method="graph", measure="support", shading="lift", main="Grocery rules")
+```
+
+Here we can see the acquired rules with color being lift and size being support.
+Let's see some other plots as well.
+
+```{r}
+plot(rules, method="paracoord", control=list(reorder=TRUE))
+plot(rules, shading="order", control=list(main="Two-key plot"))
+```
+
+With these plots we can notice that every rule ends with milk in our case which is not surprising as it is the most common item transactions, but we can also notice the longer rule chains leading to it.
+We should inspect the rules in table form.
+
+#### By support
+
+The support metric represents the frequency of occurrence of the lhs and rhs items together in the transactions. A higher support value indicates that the items occur more frequently together in transactions.
+
+```{r}
+inspect(sort(rules, by = "support"), linebreak = FALSE)
+```
+
+#### By confidence
+
+The confidence metric represents the proportion of transactions containing the lhs items that also contain the rhs item. A higher confidence value indicates a stronger relationship between the lhs and rhs items.
+
+```{r}
+inspect(sort(rules, by = "confidence"), linebreak = FALSE)
+```
+
+#### By lift
+
+The lift metric represents the strength of association between the lhs and rhs items, compared to their expected occurrence if they were independent of each other. A lift value greater than 1 indicates a positive association between the items, while a lift value less than 1 indicates a negative association.
+
+```{r}
+inspect(sort(rules, by = "lift"), linebreak = FALSE)
+```
+
+These tables pretty much look as expected. Sorting by different metrics doesn't really give us any more insight.
+We should perform our own analysis with some assumptions and questions to be answered.
+
+#### Some aditional interesting anlysis
+
+- If we know the items that lead to buying milk - then what does buying milk lead to?
+
+```{r}
+rules.milk<-apriori(data=trans, parameter=list(supp=0.001, conf=0.05, minlen=2), appearance=list(default="rhs",lhs="whole milk"), control=list(verbose=F)) 
+
+rules.milk.byconf<-sort(rules.milk, by="confidence", decreasing=TRUE)
+inspect(head(rules.milk.byconf))
+```
+
+Unsurprisingly, buying milk gives the same items as in the case where it was the other way around.
+
+- Based on pure curiosity, what items lead to buying pet care products?
+
+```{r}
+rules.pet<-apriori(data=trans, parameter=list(supp=0.001, conf=0.005, minlen=2), appearance=list(default="lhs",rhs="pet care"), control=list(verbose=F)) 
+
+rules.pet.byconf<-sort(rules.pet, by="confidence", decreasing=TRUE)
+inspect(head(rules.pet.byconf), linebreak = FALSE)
+```
+
+Interestingly, there is some association between baking powder and citrus fruits with pet care items? It is hard to explain this result.
+
+- What items are associated with instant coffee?
+
+```{r}
+rules.coffee<-apriori(data=trans, parameter=list(supp=0.001, conf=0.005, minlen=2), appearance=list(default="lhs",rhs="instant coffee"), control=list(verbose=F)) 
+
+rules.coffee.byconf<-sort(rules.coffee, by="confidence", decreasing=TRUE)
+inspect(head(rules.coffee.byconf), linebreak = FALSE)
+```
+
+Apparently, people who buy newspapers or chewing gum buy instant coffee as well. Maybe they read the newspaper while drinking coffee and chew a gum after to get rid of coffee breath.
+
+- When people buy liquor, what do they also buy?
+
+```{r}
+rules.liquor<-apriori(data=trans, parameter=list(supp=0.001, conf=0.005, minlen=2), appearance=list(default="rhs",lhs="liquor"), control=list(verbose=F)) 
+
+rules.liquor.byconf<-sort(rules.liquor, by="confidence", decreasing=TRUE)
+inspect(head(rules.liquor.byconf, 15), linebreak = FALSE)
+```
+
+Usually normal day-to-day products. Though tropical and citrus fruits are interesting, maybe they make cocktails with them?
+Let's ask one last interesting question.
+
+- When people buy frozen meals, what do they also buy?
+
+```{r}
+rules.frozen<-apriori(data=trans, parameter=list(supp=0.001, conf=0.005, minlen=2), appearance=list(default="rhs",lhs="frozen meals"), control=list(verbose=F)) 
+
+rules.frozen.byconf<-sort(rules.frozen, by="confidence", decreasing=TRUE)
+inspect(head(rules.frozen.byconf, 20), linebreak = FALSE)
+```
+
+Seems like they buy ordinary items as well. Though there is some transactions with beer in them.
+After answering some questions to get some interesting insight we can conclude this work.
+
+## Conclusion
+
+The analysis of the grocery dataset through association rules provided valuable insights into the purchasing patterns of customers. The application of the association rule mining technique allowed us to answer interesting questions and uncover relationships between different items. Additionally, the results were effectively visualized through various plots, making it easier to understand and interpret the findings. However, the dataset has some limitations, such as its specificity in terms of item groups, with some of them being very similar, making it challenging to properly analyze the situation. Despite this, the analysis serves as a foundation for future studies and provides valuable information for the optimization of retail operations.
